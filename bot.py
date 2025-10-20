@@ -1,15 +1,30 @@
 # bot.py
 import os
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import requests
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 KINOPOISK_API_KEY = os.environ["KINOPOISK_API_KEY"]
+PORT = int(os.environ.get("PORT", 10000))
 
 logging.basicConfig(level=logging.INFO)
 
+# === HTTP-сервер для Render ===
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_http_server():
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    server.serve_forever()
+
+# === Telegram-бот ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎬 Напиши жанр (например, *боевик*)!", parse_mode="Markdown")
 
@@ -57,7 +72,13 @@ async def send_movies(update: Update, genre: str):
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_movies(update, update.message.text.strip().lower())
 
+# === Запуск ===
 if __name__ == "__main__":
+    # Запускаем HTTP-сервер в фоне
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+
+    # Запускаем Telegram-бота
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
